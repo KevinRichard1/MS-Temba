@@ -53,11 +53,12 @@ For example to train MS-Temba on TSU dataset, run:
 # Citation
 If you use our approach (code or methods) in your research, please consider citing:
 ```
-@article{sinha2025ms,
-  title={MS-Temba: Multi-Scale Temporal Mamba for Efficient Temporal Action Detection},
-  author={Sinha, Arkaprava and Raj, Monish Soundar and Wang, Pu and Helmy, Ahmed and Das, Srijan},
-  journal={arXiv preprint arXiv:2501.06138},
-  year={2025}
+@inproceedings{sinha2026ms,
+  title={MS-Temba: Multi-Scale Temporal Mamba for Understanding Long Untrimmed Videos},
+  author={Sinha, Arkaprava and Raj, Monish Soundar and Wang, Pu and Helmy, Ahmed and Le, Hieu and Das, Srijan},
+  booktitle={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition},
+  pages={9815--9826},
+  year={2026}
 }
 ```
 
