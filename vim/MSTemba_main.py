@@ -103,6 +103,17 @@ parser.add_argument('--patience-epochs', type=int, default=10, metavar='N',
 parser.add_argument('--decay-rate', '--dr', type=float, default=0.1, metavar='RATE',
                     help='LR decay rate (default: 0.1)')
 
+# args for Ego4D finetuning
+parser.add_argument("-anno", type=str, default=None,
+                    help="Ego4D MQ clip_annotations.json")
+parser.add_argument("-moment_classes", type=str, default=None,
+                    help="Ego4D MQ moment_classes_idx.json")
+parser.add_argument("-input_feat_dim", type=int, default=None,
+                    help="Override feature dimension")
+parser.add_argument("-num_classes", type=int, default=None)
+parser.add_argument("-val_anno", type=str, default=None,
+                    help="Ego4D MQ moments_val.json")
+
 args = parser.parse_args()
 
 # set random seed
@@ -119,29 +130,98 @@ print('Random_SEED:', SEED)
 
 batch_size = int(args.batch_size)
 
-from charades_dataloader import Charades as Dataset
-
 def load_data(train_split, val_split, root):
     # Load Data
     print('load data', root)
 
-    if len(train_split) > 0:
-        dataset = Dataset(train_split, 'training', root, batch_size, classes, int(args.num_clips), int(args.skip))
-        dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4,
-                                                 pin_memory=True, collate_fn=collate_fn)
-        dataloader.root = root
+    if args.dataset == "ego4d_mq":
+        from ego4d_mq_dataloader import Ego4D as Dataset, load_class_map
+
+        class_map = load_class_map(
+            train_split,
+            args.moment_classes
+        )
+
+        dataset = Dataset(
+            train_split,
+            "train",
+            root,
+            batch_size,
+            classes,
+            int(args.num_clips),
+            int(args.skip),
+            class_map,
+            is_training=True
+        )
+
+        val_dataset = Dataset(
+            val_split,
+            "val",
+            root,
+            batch_size,
+            classes,
+            int(args.num_clips),
+            int(args.skip),
+            class_map,
+            is_training=False
+        )
+
     else:
+        from charades_dataloader import Charades as Dataset
 
-        dataset = None
-        dataloader = None
+        dataset = Dataset(
+            train_split,
+            "training",
+            root,
+            batch_size,
+            classes,
+            int(args.num_clips),
+            int(args.skip),
+            args.moment_classes
+        )
 
-    val_dataset = Dataset(val_split, 'testing', root, batch_size, classes, int(args.num_clips), int(args.skip))
-    val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=1, shuffle=True, num_workers=4,
-                                                 pin_memory=True, collate_fn=collate_fn)
+        val_dataset = Dataset(
+            val_split,
+            "testing",
+            root,
+            batch_size,
+            classes,
+            int(args.num_clips),
+            int(args.skip),
+            args.moment_classes
+        )
+
+    dataloader = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=4,
+        pin_memory=True,
+        collate_fn=collate_fn
+    )
+
+    val_dataloader = torch.utils.data.DataLoader(
+        val_dataset,
+        batch_size=1,
+        shuffle=True,
+        num_workers=4,
+        pin_memory=True,
+        collate_fn=collate_fn
+    )
+
+    dataloader.root = root
     val_dataloader.root = root
-    dataloaders = {'train': dataloader, 'val': val_dataloader}
-    datasets = {'train': dataset, 'val': val_dataset}
-    
+
+    dataloaders = {
+        "train": dataloader,
+        "val": val_dataloader
+    }
+
+    datasets = {
+        "train": dataset,
+        "val": val_dataset
+    }
+
     return dataloaders, datasets
 
 
@@ -537,12 +617,31 @@ def setup_logging(output_dir):
 
 if __name__ == '__main__':
     if str(args.unisize) == "True":
-        print("uni-size padd all T to",args.num_clips)
-        from charades_dataloader import collate_fn_unisize
-        collate_fn_f = collate_fn_unisize(args.num_clips)
-        collate_fn = collate_fn_f.charades_collate_fn_unisize
+        if args.dataset == "ego4d_mq":
+            from ego4d_mq_dataloader import collate_fn_unisize
+
+            collate_fn_f = collate_fn_unisize(
+                args.num_clips
+            )
+            collate_fn = (
+                collate_fn_f.ego4d_collate_fn_unisize
+            )
+        else:
+            from charades_dataloader import collate_fn_unisize
+
+            collate_fn_f = collate_fn_unisize(
+                args.num_clips
+            )
+            collate_fn = (
+                collate_fn_f.charades_collate_fn_unisize
+            )
     else:
-        from charades_dataloader import mt_collate_fn as collate_fn
+        if args.dataset == "ego4d_mq":
+            raise ValueError(
+                "Use -unisize True for Ego4D MQ."
+            )
+        else:
+            from charades_dataloader import mt_collate_fn as collate_fn
     
     if args.dataset == 'charades':
         train_split = '/data/asinha13/projects/MAD/MS-TCT/data/charades.json'
@@ -557,6 +656,16 @@ if __name__ == '__main__':
         rgb_root =  args.rgb_root 
         flow_root = '/flow_feat_path/' # optional
         classes = 51
+
+    elif args.dataset == 'ego4d_mq':
+        train_split = args.anno
+        test_split = args.val_anno
+        rgb_root = args.rgb_root
+        classes = (
+            args.num_classes
+            if args.num_classes is not None
+            else 110
+        )
 
     if args.mode == 'flow':
         print('flow mode', flow_root)
@@ -576,6 +685,8 @@ if __name__ == '__main__':
             in_feat_dim = 1024
         elif args.backbone == 'clip':
             in_feat_dim = 768
+        elif args.backbone == 'slowfast':
+            in_feat_dim = 2304
 
         # Create model using timm's create_model function
         model = create_model(
